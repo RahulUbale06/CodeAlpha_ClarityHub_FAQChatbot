@@ -1,6 +1,8 @@
 import os
+import json
 import pandas as pd
 import streamlit as st
+from datetime import datetime
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -14,7 +16,19 @@ if "search_query" not in st.session_state:
     st.session_state.search_query = ""
 if "selected_category" not in st.session_state:
     st.session_state.selected_category = "All Topics"
+if "history" not in st.session_state:
+    st.session_state.history = []
+    
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "helpful_count" not in st.session_state:
+    st.session_state.helpful_count = 0
 
+if "helpful_count" not in st.session_state:
+    st.session_state.helpful_count = 0
+
+if "search_count" not in st.session_state:
+    st.session_state.search_count = 0
 
 def set_search_state(query_text, category_text=None):
     st.session_state.search_query = query_text
@@ -185,6 +199,46 @@ def build_vector_matrix(questions_list):
 
 # Global calculations
 df = load_rich_dataset()
+
+with st.sidebar:
+
+    st.header("📊 Knowledge Analytics")
+
+    st.metric(
+        "Knowledge Entries",
+        len(df)
+    )
+
+    st.metric(
+        "Domains",
+        len(df["Category"].unique())
+    )
+
+    st.metric(
+        "Total Searches",
+        st.session_state.search_count
+    )
+
+    st.metric(
+        "Helpful Responses",
+        st.session_state.helpful_count
+    )
+
+    st.markdown("---")
+
+    st.subheader("🕒 Recent Queries")
+
+    if st.session_state.history:
+
+        for item in reversed(
+            st.session_state.history[-5:]
+        ):
+
+            st.caption(item)
+
+    else:
+
+        st.caption("No searches yet.")
 categories = ["All Topics"] + sorted(df["Category"].unique().tolist())
 
 # Filter view dynamically based on selected Category pill
@@ -204,6 +258,11 @@ vectorizer, question_vectors = build_vector_matrix(questions)
 # ------------------------------
 st.title("Clarity")
 st.write("Access instant organizational documentation answers via semantic search.")
+st.info(
+    f"📚 Knowledge Base Ready | "
+    f"{len(df)} Articles | "
+    f"{len(df['Category'].unique())} Domains"
+)
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ------------------------------
@@ -253,6 +312,8 @@ has_query = query_input.strip() != ""
 
 if has_query and len(questions) > 0:
     clean_query = query_input.strip()
+    
+    st.session_state.search_count += 1
 
     # Pass text through matching framework
     user_vec = vectorizer.transform([clean_query])
@@ -262,6 +323,11 @@ if has_query and len(questions) > 0:
     sorted_indices = scores.argsort()[::-1]
     best_match_idx = sorted_indices[0]
     top_confidence = float(scores[best_match_idx])
+    st.progress(top_confidence)
+
+    st.caption(
+        f"🎯 Knowledge Match Strength: {top_confidence:.0%}"
+    )
 
     # Check for character overlap if TF-IDF yields borderline confidence
     is_typo_fallback = False
@@ -278,6 +344,14 @@ if has_query and len(questions) > 0:
 
     # Presentation logic
     if top_confidence >= 0.20:
+        st.session_state.history.append(
+    {
+        "query": clean_query,
+        "timestamp": datetime.now().strftime(
+            "%H:%M:%S"
+        )
+    }
+)
         # Render clean HTML Spotlight interface block
         st.markdown(
             f"""
@@ -298,42 +372,102 @@ if has_query and len(questions) > 0:
         with feed_col1:
             st.caption("Was this documentation engine entry complete?")
         with feed_col2:
-            if st.button("👍 Useful", key="btn_yes", use_container_width=True):
-                st.toast("Telemetry data logged. Thank you!", icon="✨")
+            if st.button(
+    "👍 Useful",
+    key="btn_yes",
+    use_container_width=True
+):
+                st.session_state.helpful_count += 1
+
+            st.toast(
+                "Telemetry data logged. Thank you!",
+                icon="✨"
+     )
         with feed_col3:
             if st.button("👎 Incomplete", key="btn_no", use_container_width=True):
                 st.toast("Escalated to content team for revision.", icon="📝")
+       
+
+            
+        # ------------------------------
+        # ADVANCED FEATURE 3: RUNNER-UP RECOMMENDATIONS
+        # ------------------------------
+    if len(sorted_indices) > 1 and not is_typo_fallback:
+                    with st.expander("🧠 Explain Match Logic"):
+
+                        st.write(
+                f"Matched Question: {questions[best_match_idx]}"
+            )
+
+                        st.write(
+                f"Similarity Score: {top_confidence:.2%}"
+            )
+
+                    st.write(
+                f"Domain: {filtered_df.iloc[best_match_idx]['Category']}"
+            )
+
+                    st.info(
+                "Result generated using TF-IDF vectorization and cosine similarity."
+            )
 
         # ------------------------------
         # ADVANCED FEATURE 3: RUNNER-UP RECOMMENDATIONS
         # ------------------------------
-        if len(sorted_indices) > 1 and not is_typo_fallback:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.caption("📋 Other related knowledge base entries:")
+    if len(sorted_indices) > 1 and not is_typo_fallback:
 
-            # Show next 2 matches if they possess minor conversational relevance
-            visible_counter = 0
-            for runner_up_idx in sorted_indices[1:3]:
-                runner_confidence = float(scores[runner_up_idx])
+            st.markdown("### 🔗 Related Knowledge")
+
+            for runner_up_idx in sorted_indices[1:4]:
+
+                runner_confidence = float(
+                    scores[runner_up_idx]
+                )
+
                 if runner_confidence > 0.05:
-                    visible_counter += 1
-                    with st.expander(f"🔍 {questions[runner_up_idx]}"):
-                        st.write(answers[runner_up_idx])
-                        st.markdown(
-                            f"<code style='font-size:0.75rem;'>Relevance Factor: {int(runner_confidence*100)}%</code>",
-                            unsafe_allow_html=True,
+
+                    with st.expander(
+                        f"🔍 {questions[runner_up_idx]}"
+                    ):
+
+                        st.write(
+                            answers[runner_up_idx]
                         )
+
+                        st.caption(
+                            f"Relevance: {runner_confidence:.0%}"
+                        )
+
+    if st.session_state.history:
+
+            st.markdown("### 🕒 Recent Searches")
+
+            for item in reversed(
+                st.session_state.history[-5:]
+            ):
+
+                if isinstance(item, dict):
+                    st.caption(item["query"])
+
+    if st.session_state.history:
+
+            st.download_button(
+                "📥 Export Session",
+                json.dumps(
+                    st.session_state.history,
+                    indent=4
+                ),
+                "clarity_history.json"
+            )
 
     else:
         st.markdown("<br>", unsafe_allow_html=True)
+
         st.info(
-            "🔍 **No primary matches cross-referenced.**\n\n"
-            "We couldn't link those terms to our documentation. Try selecting an alternative macro category pill above."
+            "🔍 No primary matches cross-referenced."
         )
 
-elif len(questions) == 0:
-    st.info("⚠️ No documents exist inside this selected partition.")
-
+                
 # ------------------------------
 # SIGNATURE ATTRIBUTION FOOTER
 # ------------------------------
